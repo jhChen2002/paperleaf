@@ -1,0 +1,51 @@
+export type PaperStatus = "unread" | "reading" | "read";
+export type Rect = { x: number; y: number; w: number; h: number };
+export type Folder = { id: string; name: string; color: string };
+export type Paper = {
+  id: string;
+  title: string;
+  authors: string;
+  year: number | null;
+  venue: string;
+  doi: string;
+  abstract: string;
+  tags: string[];
+  folderId: string | null;
+  status: PaperStatus;
+  starred: boolean;
+  pageCount: number;
+  currentPage: number;
+  fileName: string | null;
+  fileSize: number;
+  hasFile: boolean;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+};
+export type Note = {
+  id: string;
+  paperId: string;
+  quote: string;
+  content: string;
+  page: number | null;
+  color: string;
+  tags: string[];
+  rects: Rect[];
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+};
+export type Library = {
+  papers: Paper[];
+  folders: Folder[];
+  notes: Note[];
+  user: { name: string; email: string };
+  serverTime: string;
+};
+export type LibraryBackup = {
+  version: 1;
+  exportedAt: string;
+  papers: Paper[];
+  folders: Folder[];
+  notes: Note[];
+};

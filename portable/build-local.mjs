@@ -1,0 +1,14 @@
+import {createRequire} from 'node:module';
+import {build as viteBuild} from 'vite';
+import {mkdir,cp,copyFile,writeFile,readdir,readFile} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const require=createRequire(import.meta.url);const esbuild=require(require.resolve('esbuild',{paths:[path.dirname(require.resolve('vite/package.json'))]}));
+const out=path.join(root,'release/portable');await mkdir(out,{recursive:true});
+await esbuild.build({entryPoints:[path.join(root,'portable/server-entry.mjs')],outfile:path.join(out,'server.mjs'),bundle:true,platform:'node',format:'esm',target:'node24',alias:{'cloudflare:workers':path.join(root,'portable/server-env.mjs'),'@/app/chatgpt-auth':path.join(root,'portable/local-auth.mjs')},legalComments:'eof'});
+await viteBuild({configFile:path.join(root,'portable/vite.config.mjs')});
+await mkdir(path.join(out,'migrations'),{recursive:true});for(const file of await readdir(path.join(root,'drizzle')))if(file.endsWith('.sql'))await copyFile(path.join(root,'drizzle',file),path.join(out,'migrations',file));
+for(const file of ['start.ps1','stop.ps1','Start-Paperleaf.cmd','Stop-Paperleaf.cmd','LOCAL-README.txt'])await copyFile(path.join(root,'portable',file),path.join(out,file));
+await writeFile(path.join(out,'package.json'),JSON.stringify({name:'paperleaf-local',version:'1.0.0',type:'module',private:true},null,2));
+console.log(`Local bundle ready: ${out}`);

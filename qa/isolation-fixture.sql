@@ -1,0 +1,3 @@
+INSERT INTO folders (id,user_id,name,color,created_at) VALUES ('qa-other-folder','qa-other-user','QA other owner','#123456','2026-10-14T00:00:00.000Z');
+INSERT INTO papers (id,user_id,title,folder_id,file_key,file_name,file_size,created_at,updated_at) VALUES ('qa-other-paper','qa-other-user','QA other private paper','qa-other-folder','qa-private.pdf','private.pdf',42,'2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z');
+INSERT INTO notes (id,user_id,paper_id,content,created_at,updated_at) VALUES ('qa-other-note','qa-other-user','qa-other-paper','QA private note','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z');
