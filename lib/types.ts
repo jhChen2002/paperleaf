@@ -18,6 +18,7 @@ export type Paper = {
   fileName: string | null;
   fileSize: number;
   hasFile: boolean;
+  fileVersion?: string;
   createdAt: string;
   updatedAt: string;
   revision: number;

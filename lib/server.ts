@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import type { Folder, Library, LibraryBackup, Note, Paper } from "@/lib/types";
@@ -92,7 +93,7 @@ function paper(row: Row): Paper {
     venue: String(row.venue), doi: String(row.doi), abstract: String(row.abstract), tags: jsonList<string>(row.tags),
     folderId: row.folder_id == null ? null : String(row.folder_id), status: row.status as Paper["status"], starred: !!row.starred,
     pageCount: Number(row.page_count), currentPage: Number(row.current_page), fileName: row.file_name == null ? null : String(row.file_name),
-    fileSize: Number(row.file_size), hasFile: !!row.file_key, createdAt: String(row.created_at), updatedAt: String(row.updated_at), revision: Number(row.revision),
+    fileSize: Number(row.file_size), hasFile: !!row.file_key, fileVersion: row.file_key ? String(row.file_key).split('/').pop() : undefined, createdAt: String(row.created_at), updatedAt: String(row.updated_at), revision: Number(row.revision),
   };
 }
 function note(row: Row): Note {
@@ -136,6 +137,110 @@ export async function getLibrary() {
 function insertPaper(id: string, userId: string, value: z.infer<typeof paperSchema>, time: string, file: { name: string | null; size: number; key: string | null; hash: string | null } = { name: null, size: 0, key: null, hash: null }, ignoreExisting = false, updatedTime = time) {
   return db().prepare(`INSERT ${ignoreExisting ? "OR IGNORE " : ""}INTO papers (id,user_id,title,authors,year,venue,doi,abstract,tags,folder_id,status,starred,page_count,current_page,file_name,file_size,file_key,file_hash,created_at,updated_at,revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1) RETURNING *`)
     .bind(id, userId, value.title, value.authors, value.year, value.venue, value.doi, value.abstract, JSON.stringify(value.tags), value.folderId, value.status, value.starred ? 1 : 0, value.pageCount, value.currentPage, file.name, file.size, file.key, file.hash, time, updatedTime);
+}
+
+const UPLOAD_PART_SIZE = 5 * 1024 * 1024;
+const uploadSchema = z.object({fileName: shortText(500).min(1), fileSize: z.number().int().min(5).max(MAX_FILE), fileHash: z.string().regex(/^[a-f0-9]{64}$/), folderId: identifier.nullable().default(null), paperId: identifier.optional(), revision: z.number().int().positive().optional()});
+type UploadState = z.infer<typeof uploadSchema> & {id:string;key:string;uploadId:string;expires:number;completedPaperId?:string};
+const uploadKey=(owner:string,id:string)=>`uploads/${encodeURIComponent(owner)}/${id}.json`;
+async function discardUpload(owner:string,state:UploadState){
+  // A cancellation or expired receipt must never delete an attached PDF.
+  const attached=await db().prepare("SELECT id FROM papers WHERE user_id=? AND file_key=?").bind(owner,state.key).first();
+  await bucket().resumeMultipartUpload(state.key,state.uploadId).abort().catch(()=>undefined);
+  if(!attached)await bucket().delete(state.key);
+  await bucket().delete(uploadKey(owner,state.id));
+}
+async function uploadState(owner:string,id:string):Promise<UploadState>{
+  z.string().uuid().parse(id);
+  const object=await bucket().get(uploadKey(owner,id));
+  if(!object)throw new ApiError(404,"上传任务不存在或已过期，请重新选择文件。","UPLOAD_NOT_FOUND");
+  const state=JSON.parse(await new Response(object.body).text()) as UploadState;
+  if(state.expires<Date.now()){await discardUpload(owner,state);throw new ApiError(410,"上传任务已过期，请重新选择文件。","UPLOAD_EXPIRED");}
+  return state;
+}
+export async function startUpload(request:Request){
+  const account=await user();const input=uploadSchema.parse(await json(request));
+  await checkFolder(input.folderId,account.userId);
+  if(input.paperId){const p=await findPaper(input.paperId,account.userId);if(Number(p.revision)!==input.revision)throw new ApiError(409,"文献已更新，请刷新后重新关联附件。","REVISION_CONFLICT");}
+  const duplicate=await db().prepare("SELECT * FROM papers WHERE user_id = ? AND file_hash = ?").bind(account.userId,input.fileHash).first<Row>();
+  if(duplicate){if(input.paperId&&input.paperId!==duplicate.id)throw new ApiError(409,"该 PDF 已在另一条文献中。","DUPLICATE_FILE");return Response.json({paper:paper(duplicate),duplicate:true});}
+  const id=crypto.randomUUID(),key=`papers/${id}.pdf`;
+  const multipart=await bucket().createMultipartUpload(key,{httpMetadata:{contentType:"application/pdf"}});
+  const state:UploadState={...input,id,key,uploadId:multipart.uploadId,expires:Date.now()+86400000};
+  try{await bucket().put(uploadKey(account.userId,id),JSON.stringify(state));}catch(e){await multipart.abort().catch(()=>undefined);throw e;}
+  return Response.json({id,partSize:UPLOAD_PART_SIZE},{status:201});
+}
+export async function uploadPart(request:Request,context:Context){
+  const account=await user(),state=await uploadState(account.userId,await idFrom(context));
+  const part=z.coerce.number().int().min(1).max(Math.ceil(state.fileSize/UPLOAD_PART_SIZE)).parse(new URL(request.url).searchParams.get('part'));
+  const expected=Math.min(UPLOAD_PART_SIZE,state.fileSize-(part-1)*UPLOAD_PART_SIZE);
+  const bytes=await new Response(limitedBody(request,expected)).arrayBuffer();
+  if(bytes.byteLength!==expected)throw new ApiError(400,"分块没有完整传输，请重试。","INVALID_PART_SIZE");
+  if(part===1&&new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw new ApiError(400,"文件内容不是有效的 PDF。","INVALID_PDF");
+  const result=await bucket().resumeMultipartUpload(state.key,state.uploadId).uploadPart(part,bytes);
+  return Response.json(result);
+}
+export async function cancelUpload(_request:Request,context:Context){
+  const account=await user(),state=await uploadState(account.userId,await idFrom(context));
+  const attached=await db().prepare("SELECT id FROM papers WHERE user_id=? AND file_key=?").bind(account.userId,state.key).first();
+  if(!attached&&!state.completedPaperId){
+    try{await bucket().resumeMultipartUpload(state.key,state.uploadId).abort();}
+    catch(e){if(await bucket().head(state.key))throw new ApiError(409,"文件正在保存，请稍后刷新文献库。","UPLOAD_FINALIZING");throw e;}
+  }
+  // Never remove an assembled object while another completion request may save it.
+  await bucket().delete(uploadKey(account.userId,state.id));return Response.json({ok:true});
+}
+export async function finishUpload(request:Request,context:Context){
+  const account=await user(),id=await idFrom(context);
+  const already=await db().prepare("SELECT * FROM papers WHERE id = ? AND user_id = ?").bind(id,account.userId).first<Row>();
+  if(already)return Response.json({paper:paper(already)});
+  const state=await uploadState(account.userId,id);
+  // Receipts also cover uploads deduplicated against a concurrently imported PDF.
+  if(state.completedPaperId){
+    const completed=await findPaper(state.completedPaperId,account.userId);
+    if(completed.file_hash!==state.fileHash){await discardUpload(account.userId,state);throw new ApiError(409,"这条文献的附件已在其他设备更换，请刷新后重试。","UPLOAD_SUPERSEDED");}
+    return Response.json({paper:paper(completed)});
+  }
+  if(state.paperId){
+    const existing=await findPaper(state.paperId,account.userId);
+    if(existing.file_key===state.key)return Response.json({paper:paper(existing)});
+    if(Number(existing.revision)!==state.revision){await discardUpload(account.userId,state);throw new ApiError(409,"文献已更新，请刷新后重新关联附件。","REVISION_CONFLICT");}
+  }
+  const input=z.object({parts:z.array(z.object({partNumber:z.number().int().positive(),etag:z.string().min(1).max(200)})).min(1).max(8)}).parse(await json(request));
+  const parts=input.parts.sort((a,b)=>a.partNumber-b.partNumber);
+  if(parts.length!==Math.ceil(state.fileSize/UPLOAD_PART_SIZE)||parts.some((p,i)=>p.partNumber!==i+1))throw new ApiError(400,"仍有分块未完成，请继续上传。","INCOMPLETE_UPLOAD");
+  // A lost completion response can be retried without uploading the file again.
+  if(!await bucket().head(state.key))await bucket().resumeMultipartUpload(state.key,state.uploadId).complete(parts);
+  const object=await bucket().get(state.key);
+  if(!object||object.size!==state.fileSize){await discardUpload(account.userId,state);throw new ApiError(400,"文件大小校验失败，请重新上传。","FILE_SIZE_MISMATCH");}
+  const hash=createHash('sha256'),reader=object.body.getReader();
+  try{for(;;){const {value,done}=await reader.read();if(done)break;hash.update(value);}}finally{reader.releaseLock();}
+  if(hash.digest('hex')!==state.fileHash){await bucket().delete(state.key);await bucket().delete(uploadKey(account.userId,id));throw new ApiError(400,"文件校验失败，请重新选择原文件。","FILE_HASH_MISMATCH");}
+  let result:Row|null;
+  if(state.paperId){
+    const existing=await findPaper(state.paperId,account.userId);
+    if(existing.file_key===state.key)return Response.json({paper:paper(existing)});
+    if(Number(existing.revision)!==state.revision){await discardUpload(account.userId,state);throw new ApiError(409,"文献已更新，请刷新后重新关联附件。","REVISION_CONFLICT");}
+    try{result=await db().prepare("UPDATE papers SET file_name=?,file_size=?,file_key=?,file_hash=?,page_count=0,current_page=1,updated_at=?,revision=revision+1 WHERE id=? AND user_id=? AND revision=? RETURNING *")
+      .bind(state.fileName,state.fileSize,state.key,state.fileHash,now(),state.paperId,account.userId,state.revision!).first<Row>();}
+    catch(e){
+      const duplicate=await db().prepare("SELECT id FROM papers WHERE user_id=? AND file_hash=? AND id!=?").bind(account.userId,state.fileHash,state.paperId).first();
+      if(!duplicate)throw e;
+      await discardUpload(account.userId,state);throw new ApiError(409,"该 PDF 已在另一条文献中，请打开已有文献。","DUPLICATE_FILE");
+    }
+    if(!result){const current=await findPaper(state.paperId,account.userId);if(current.file_key===state.key)return Response.json({paper:paper(current)});await discardUpload(account.userId,state);throw new ApiError(409,"文献已更新，请刷新后重试。","REVISION_CONFLICT");}
+    if(existing.file_key)await bucket().delete(String(existing.file_key)).catch(()=>undefined);
+  }else{
+    try{await checkFolder(state.folderId,account.userId);}catch(e){if(e instanceof ApiError&&e.code==='FOLDER_NOT_FOUND')await discardUpload(account.userId,state);throw e;}
+    try{result=await insertPaper(id,account.userId,paperSchema.parse({title:state.fileName.replace(/\.pdf$/i,'').trim()||'未命名文献',folderId:state.folderId}),now(),{name:state.fileName,size:state.fileSize,key:state.key,hash:state.fileHash}).first<Row>();}
+    catch(e){const duplicate=await db().prepare("SELECT * FROM papers WHERE user_id=? AND file_hash=?").bind(account.userId,state.fileHash).first<Row>();if(!duplicate)throw e;result=duplicate;}
+  }
+  if(result!.id!==id){
+    await bucket().put(uploadKey(account.userId,id),JSON.stringify({...state,completedPaperId:String(result!.id)}));
+    if(result!.file_key!==state.key)await bucket().delete(state.key);
+  }else await bucket().delete(uploadKey(account.userId,id)).catch(()=>undefined);
+  // Keep tiny attachment/deduplication receipts for lost-response retries.
+  return Response.json({paper:paper(result!)});
 }
 
 export async function createPaper(request: Request) {

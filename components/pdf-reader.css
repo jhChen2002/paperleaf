@@ -56,3 +56,5 @@
 @keyframes pdf-reader-spin { to { transform: rotate(360deg); } }
 @media (max-width: 600px) { .pdf-reader-toolbar { padding: 7px 10px; } .pdf-reader-page-controls, .pdf-reader-zoom-controls { gap: 3px; } .pdf-reader-search { padding-inline: 12px; } .pdf-reader-document { padding: 12px; } }
 @media (prefers-reduced-motion: reduce) { .pdf-reader-spinner { animation-duration: 2.5s; } }
+.pdf-reader-document{gap:24px}.pdf-reader-toolbar .pdf-reader-jump{width:38px;font-size:11px;background:#53634f}.pdf-continuous-label{font-size:11px;color:#bbc8b6}.pdf-page-number{position:absolute;bottom:5px;right:8px;font-size:10px;color:#adb4a9;z-index:0;user-select:none}.pdf-reader-page-form input{width:43px}@media(max-width:600px){.pdf-continuous-label{display:none}.pdf-reader-document{gap:18px}}
+.pdf-continuous-label{white-space:nowrap;flex-shrink:0}@media(max-width:1100px){.pdf-continuous-label{display:none}}

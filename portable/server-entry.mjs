@@ -22,6 +22,9 @@ async function route(request){const url=new URL(request.url);const p=url.pathnam
  if(p==='/api/export'&&m==='GET')return api.exportLibrary();
  if(p==='/api/import'&&m==='POST')return api.importLibrary(request);
  if(p==='/api/papers'&&m==='POST')return api.createPaper(request);
+ if(p==='/api/uploads'&&m==='POST')return api.startUpload(request);
+ const upload=/^\/api\/uploads\/([^/]+)(\/complete)?$/.exec(p);
+ if(upload){const context={params:Promise.resolve({id:decodeURIComponent(upload[1])})};if(upload[2]&&m==='POST')return api.finishUpload(request,context);if(!upload[2]&&m==='PUT')return api.uploadPart(request,context);if(!upload[2]&&m==='DELETE')return api.cancelUpload(request,context);}
  if(p==='/api/folders'&&m==='POST')return api.createFolder(request);
  if(p==='/api/notes'&&m==='POST')return api.createNote(request);
  const match=/^\/api\/(papers|folders|notes)\/([^/]+)(\/file)?$/.exec(p);
@@ -38,11 +41,11 @@ const server=http.createServer(async(req,res)=>{
   if(req.headers['sec-fetch-site']==='cross-site'){res.writeHead(403);res.end('Cross-site request rejected');return;}
   if(url.pathname.startsWith('/api/')){
    const init={method:req.method,headers:req.headers};if(!['GET','HEAD'].includes(req.method)){
-    const limit=req.headers['content-type']?.includes('multipart/form-data')?41*1024*1024:url.pathname==='/api/import'?16*1024*1024:256*1024;
+    const limit=url.pathname.startsWith('/api/uploads/')&&req.method==='PUT'?5*1024*1024:req.headers['content-type']?.includes('multipart/form-data')?41*1024*1024:url.pathname==='/api/import'?16*1024*1024:256*1024;
     const body=await readBody(req,limit);if(body===null){res.writeHead(413,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'文件或请求内容超过大小限制。',code:'PAYLOAD_TOO_LARGE'}));return;}init.body=body;
    }
    const request=new Request(url,init);const response=await api.api(()=>route(request));
-   res.writeHead(response.status,Object.fromEntries(response.headers));if(response.body)Readable.fromWeb(response.body).on('error',()=>res.destroy()).pipe(res);else res.end();return;
+   res.writeHead(response.status,Object.fromEntries(response.headers));if(response.body){const stream=Readable.fromWeb(response.body);res.on('close',()=>stream.destroy());stream.on('error',()=>res.destroy()).pipe(res);}else res.end();return;
   }
   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);res.end();return;}
   const pathname=decodeURIComponent(url.pathname);const full=path.resolve(webRoot,'.'+(pathname==='/'?'/index.html':pathname));
