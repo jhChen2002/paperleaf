@@ -1,4 +1,4 @@
-纸间 Paperleaf 1.0.0 — Windows 本地版
+纸间 Paperleaf 1.1.0 — Windows 本地版
 
 1. 先将整个 ZIP 解压到一个普通文件夹，例如 D:\Paperleaf。不要直接在压缩软件里运行。
 2. 进入解压后的 portable 文件夹，双击 Start-Paperleaf.cmd。软件会在默认浏览器中打开 http://127.0.0.1:43127。
@@ -34,3 +34,6 @@
 源码与反馈：https://github.com/jhChen2002/paperleaf
 下载更新：https://github.com/jhChen2002/paperleaf/releases
 第三方组件许可证见 licenses 目录。
+
+多人云同步
+同门可通过 https://paperleaf-reading-notebook.jiahaochen0117.chatgpt.site/login 自行注册邮箱账号，无需 ChatGPT 账号。多台设备登录同一邮箱即可同步。请保存注册时生成的恢复码；当前不发送验证码或找回邮件。本机资料不会自动上传，云端使用时需导入 PDF。

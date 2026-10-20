@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { createHash } from "node:crypto";
-import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { z } from "zod/v3";
+import { getCurrentUser } from "@/lib/identity";
 import type { Folder, Library, LibraryBackup, Note, Paper } from "@/lib/types";
 
 type Row = Record<string, unknown>;
@@ -47,7 +47,7 @@ function bucket(): R2Bucket {
   return env.BUCKET;
 }
 async function user() {
-  const value = await getChatGPTUser();
+  const value = await getCurrentUser();
   if (!value) throw new ApiError(401, "请先登录，然后使用你的个人文献库。", "UNAUTHENTICATED");
   return value;
 }
@@ -130,7 +130,7 @@ export async function getLibrary() {
     db().prepare("SELECT * FROM folders WHERE user_id = ? ORDER BY created_at, id").bind(account.userId),
     db().prepare("SELECT n.* FROM notes n JOIN papers p ON p.id = n.paper_id AND p.user_id = n.user_id WHERE n.user_id = ? ORDER BY n.updated_at DESC, n.id").bind(account.userId),
   ]);
-  const library: Library = { papers: result[0].results.map(paper), folders: result[1].results.map(folder), notes: result[2].results.map(note), user: { name: account.displayName, email: account.email }, serverTime: now() };
+  const library: Library = { papers: result[0].results.map(paper), folders: result[1].results.map(folder), notes: result[2].results.map(note), user: { name: account.displayName, email: account.email,authType:account.authType,legacyAvailable:account.legacyAvailable,legacySignedIn:account.legacySignedIn }, serverTime: now() };
   return Response.json(library);
 }
 

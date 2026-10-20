@@ -17,7 +17,7 @@ async function readBody(req,limit){
  });
 }
 async function route(request){const url=new URL(request.url);const p=url.pathname;const m=request.method;
- if(p==='/api/health')return Response.json({app:'paperleaf',version:'1.0.0',mode:'local'});
+ if(p==='/api/health')return Response.json({app:'paperleaf',version:'1.1.0',mode:'local'});
  if(p==='/api/library'&&m==='GET')return api.getLibrary();
  if(p==='/api/export'&&m==='GET')return api.exportLibrary();
  if(p==='/api/import'&&m==='POST')return api.importLibrary(request);

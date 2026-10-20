@@ -20,7 +20,7 @@ await writeFile(path.join(licenses,'NOTICE.txt'),`Paperleaf includes Node.js ${p
 await copyFile(path.join(root,'LICENSE'),path.join(out,'LICENSE'));
 // A release may never include the developer's working library.
 if((await readdir(out)).includes('data'))throw new Error('Refusing to package a directory containing data. Build in a clean release directory.');
-const zip=path.resolve(process.argv[2]||path.join(root,'release/Paperleaf-1.0.0-Windows-x64.zip'));
+const zip=path.resolve(process.argv[2]||path.join(root,`release/Paperleaf-${JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version}-Windows-x64.zip`));
 await mkdir(path.dirname(zip),{recursive:true});
 const script="$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; if(Test-Path -LiteralPath $env:PAPERLEAF_PACKAGE_ZIP){Remove-Item -LiteralPath $env:PAPERLEAF_PACKAGE_ZIP}; [IO.Compression.ZipFile]::CreateFromDirectory($env:PAPERLEAF_PACKAGE_DIR,$env:PAPERLEAF_PACKAGE_ZIP,[IO.Compression.CompressionLevel]::Optimal,$true)";
 const result=spawnSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-Command',script],{stdio:'inherit',env:{...process.env,PAPERLEAF_PACKAGE_DIR:out,PAPERLEAF_PACKAGE_ZIP:zip}});if(result.status!==0)throw new Error('ZIP packaging failed');

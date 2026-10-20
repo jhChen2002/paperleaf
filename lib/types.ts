@@ -40,7 +40,7 @@ export type Library = {
   papers: Paper[];
   folders: Folder[];
   notes: Note[];
-  user: { name: string; email: string };
+  user: { name: string; email: string; authType?:string;legacyAvailable?:boolean;legacySignedIn?:boolean };
   serverTime: string;
 };
 export type LibraryBackup = {

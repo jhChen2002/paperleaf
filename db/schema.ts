@@ -1,5 +1,38 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+export const authUser = sqliteTable('auth_user', {
+  id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(),
+  emailVerified: integer('emailVerified', {mode:'boolean'}).notNull().default(false), image: text('image'),
+  createdAt: integer('createdAt', {mode:'timestamp_ms'}).notNull(), updatedAt: integer('updatedAt', {mode:'timestamp_ms'}).notNull(),
+});
+export const authSession = sqliteTable('auth_session', {
+  id:text('id').primaryKey(), token:text('token').notNull().unique(), userId:text('userId').notNull().references(()=>authUser.id,{onDelete:'cascade'}),
+  expiresAt:integer('expiresAt',{mode:'timestamp_ms'}).notNull(), createdAt:integer('createdAt',{mode:'timestamp_ms'}).notNull(), updatedAt:integer('updatedAt',{mode:'timestamp_ms'}).notNull(),
+  ipAddress:text('ipAddress'), userAgent:text('userAgent'),
+}, t=>[index('auth_session_user_idx').on(t.userId)]);
+export const authAccount = sqliteTable('auth_account', {
+  id:text('id').primaryKey(), accountId:text('accountId').notNull(), providerId:text('providerId').notNull(), userId:text('userId').notNull().references(()=>authUser.id,{onDelete:'cascade'}),
+  accessToken:text('accessToken'), refreshToken:text('refreshToken'), idToken:text('idToken'), scope:text('scope'), password:text('password'),
+  accessTokenExpiresAt:integer('accessTokenExpiresAt',{mode:'timestamp_ms'}), refreshTokenExpiresAt:integer('refreshTokenExpiresAt',{mode:'timestamp_ms'}),
+  createdAt:integer('createdAt',{mode:'timestamp_ms'}).notNull(), updatedAt:integer('updatedAt',{mode:'timestamp_ms'}).notNull(),
+}, t=>[index('auth_account_user_idx').on(t.userId),uniqueIndex('auth_account_provider_idx').on(t.providerId,t.accountId)]);
+export const authVerification = sqliteTable('auth_verification', {
+  id:text('id').primaryKey(), identifier:text('identifier').notNull(), value:text('value').notNull(),
+  expiresAt:integer('expiresAt',{mode:'timestamp_ms'}).notNull(), createdAt:integer('createdAt',{mode:'timestamp_ms'}).notNull(), updatedAt:integer('updatedAt',{mode:'timestamp_ms'}).notNull(),
+},t=>[index('auth_verification_identifier_idx').on(t.identifier)]);
+export const authRateLimit = sqliteTable('auth_rate_limit', {
+  id:text('id').primaryKey(), key:text('key').notNull().unique(), count:integer('count').notNull(),lastRequest:integer('lastRequest').notNull(),
+});
+export const authRecovery = sqliteTable('auth_recovery', {
+  userId:text('user_id').primaryKey().references(()=>authUser.id,{onDelete:'cascade'}),codeHash:text('code_hash').notNull(),
+});
+export const authLibraryLink = sqliteTable('auth_library_link', {
+  userId:text('user_id').primaryKey().references(()=>authUser.id,{onDelete:'cascade'}),legacyUserId:text('legacy_user_id').notNull().unique(),
+});
+export const authThrottle = sqliteTable('auth_throttle', {
+  key:text('key').primaryKey(),count:integer('count').notNull(),expires:integer('expires').notNull(),
+});
+
 export const folders = sqliteTable("folders", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),

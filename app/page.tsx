@@ -1,7 +1,8 @@
 import LibraryApp from '../components/LibraryApp';
-import { requireChatGPTUser } from './chatgpt-auth';
+import {getCurrentUser} from '../lib/identity';
+import {redirect} from 'next/navigation';
 export const dynamic = 'force-dynamic';
 export default async function Home() {
-  await requireChatGPTUser('/');
+  if(!await getCurrentUser())redirect('/login');
   return <LibraryApp />;
 }
